@@ -127,6 +127,10 @@ impl IsField for P448GoldilocksPrimeField {
     }
 
     fn eq(a: &U56x8, b: &U56x8) -> bool {
+        let mut a = *a;
+        let mut b = *b;
+        Self::strong_reduce(&mut a);
+        Self::strong_reduce(&mut b);
         a.limbs == b.limbs
     }
 
@@ -149,12 +153,13 @@ impl IsField for P448GoldilocksPrimeField {
 
     fn from_base_type(x: U56x8) -> U56x8 {
         let mut x = x;
-        Self::weak_reduce(&mut x);
+        Self::strong_reduce(&mut x);
         x
     }
 }
 
 impl P448GoldilocksPrimeField {
+    /// Reduces the number to be less than 2 times the modulus
     fn weak_reduce(a: &mut U56x8) {
         let a = &mut a.limbs;
 
@@ -167,6 +172,34 @@ impl P448GoldilocksPrimeField {
         }
 
         a[0] = (a[0] & mask) + tmp;
+    }
+
+    /// Reduces the number to its canonical form
+    fn strong_reduce(a: &mut U56x8) {
+        P448GoldilocksPrimeField::weak_reduce(a);
+
+        const MODULUS: U56x8  = U56x8::from("fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        let mask = (1u128 << 56) - 1;
+
+        let mut scarry = 0i128;
+        for i in 0..8 {
+            scarry = scarry + (a.limbs[i] as i128) - (MODULUS.limbs[i] as i128);
+            a.limbs[i] = ((scarry as u128) & mask) as u64;
+            scarry >>= 56;
+        }
+
+        assert!((scarry as u64) == 0 || (scarry as u64).wrapping_add(1) == 0);
+
+        let scarry_0 = scarry as u64;
+        let mut carry = 0u128;
+
+        for i in 0..8 {
+            carry = carry + (a.limbs[i] as u128) + ((scarry_0 & MODULUS.limbs[i]) as u128);
+            a.limbs[i] = (carry & mask) as u64;
+            carry >>= 56;
+        }
+
+        assert!((carry as u64).wrapping_add(scarry_0) == 0);
     }
 }
 
@@ -207,7 +240,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn construc_u56x8_from_hex_string_1() {
+    fn construct_u56x8_from_hex_string_1() {
         let hex_str = "1";
         let num = U56x8::from(hex_str);
         assert_eq!(num.limbs, [1, 0, 0, 0, 0, 0, 0, 0]);
@@ -230,6 +263,13 @@ mod tests {
                 20754307036021427
             ]
         );
+    }
+
+    #[test]
+    fn strong_reduce_test() {
+        let mut num = U56x8::from("fffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        P448GoldilocksPrimeField::strong_reduce(&mut num);
+        assert_eq!(num.limbs, [0, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     #[test]
